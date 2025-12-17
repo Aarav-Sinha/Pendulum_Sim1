@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <style>
+        :root { 
+            --neon: #00f2ff; 
+            --bg: #010204; 
+            --panel: rgba(10, 14, 20, 0.95); 
+        }
+        
+        body { margin: 0; background: var(--bg); color: var(--neon); font-family: 'Segoe UI', sans-serif; overflow: hidden; display: flex; flex-direction: column; height: 100vh; }
+
+        /* Mobile Scrollbar */
+        .controls::-webkit-scrollbar { width: 3px; }
+        .controls::-webkit-scrollbar-thumb { background: var(--neon); border-radius: 10px; }
+
+        /* Canvas Area - Top half */
+        #canvas-container { flex-grow: 1; position: relative; width: 100%; overflow: hidden; }
+        canvas { display: block; touch-action: none; }
+
+        /* Mobile Controls - Bottom half */
+        .controls { 
+            height: 40vh; background: var(--panel); border-top: 1px solid #333; 
+            overflow-y: auto; padding: 15px; box-sizing: border-box;
+            box-shadow: 0 -10px 30px rgba(0,0,0,0.8);
+        }
+
+        .header { text-align: center; margin-bottom: 15px; border-bottom: 1px solid #222; padding-bottom: 10px; }
+        .header h2 { margin: 0; font-size: 10px; letter-spacing: 3px; text-transform: uppercase; }
+
+        .card { background: #080808; border: 1px solid #1a1a1a; padding: 10px; border-radius: 6px; margin-bottom: 10px; }
+        h3 { font-size: 8px; text-transform: uppercase; letter-spacing: 1.5px; margin: 0 0 8px 0; color: #5588ff; }
+
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .input-group label { display: block; font-size: 8px; color: #888; margin-bottom: 4px; }
+        input[type="number"] { width: 100%; background: #000; border: 1px solid #333; color: #fff; padding: 8px; border-radius: 4px; font-size: 12px; }
+        input[type="range"] { width: 100%; accent-color: var(--neon); height: 20px; }
+
+        .dash { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+        .box { background: #000; padding: 5px; border: 1px solid #111; border-left: 2px solid var(--neon); text-align: center; }
+        .box span { display: block; font-size: 7px; color: #555; text-transform: uppercase; }
+        .box b { font-size: 10px; color: #fff; }
+
+        .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 5px; }
+        .btn { padding: 12px; background: transparent; border: 1px solid var(--neon); color: var(--neon); cursor: pointer; font-size: 10px; font-weight: bold; border-radius: 4px; text-transform: uppercase; }
+        .btn:active { background: var(--neon); color: #000; }
+        .btn-apply { border-color: #5588ff; color: #5588ff; }
+
+        .watermark { position: absolute; top: 10px; right: 15px; font-size: 10px; opacity: 0.2; letter-spacing: 2px; }
+    </style>
+</head>
+<body>
+
+<div id="canvas-container">
+    <div class="watermark">ARAV SINHA | MOBILE-LAB</div>
+    <canvas id="canvas"></canvas>
+</div>
+
+<div class="controls">
+    <div class="header"><h2>Physics Analyzer Mobile v1</h2></div>
+
+    <div class="card">
+        <h3>Live Telemetry</h3>
+        <div class="dash">
+            <div class="box"><span>θ1 Angle</span><b id="t_a1">0°</b></div>
+            <div class="box"><span>θ2 Angle</span><b id="t_a2">0°</b></div>
+            <div class="box"><span>Energy</span><b id="t_e">0</b></div>
+            <div class="box"><span>Time</span><b id="t_t">0.0s</b></div>
+            <div class="box"><span>ω2 Vel</span><b id="t_v2">0.0</b></div>
+            <div class="box"><span>α2 Acc</span><b id="t_a2_acc">0.0</b></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>System Configuration</h3>
+        <div class="grid-2">
+            <div class="input-group"><label>L1 Length</label><input type="number" id="l1_i" value="80"></div>
+            <div class="input-group"><label>L2 Length</label><input type="number" id="l2_i" value="80"></div>
+            <div class="input-group"><label>M1 Mass</label><input type="number" id="m1_i" value="10"></div>
+            <div class="input-group"><label>M2 Mass</label><input type="number" id="m2_i" value="10"></div>
+        </div>
+        <div class="btn-row">
+            <button class="btn btn-apply" onclick="applyAndReset()">Apply</button>
+            <button class="btn" id="runBtn" onclick="toggleSim()">Resume</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>Environment</h3>
+        <label style="font-size:8px">Gravity: <span id="g_l">9.8</span></label>
+        <input type="range" id="g_s" min="0" max="25" step="0.5" value="9.8">
+        <label style="font-size:8px">Friction: <span id="d_l">0.000</span></label>
+        <input type="range" id="d_s" min="0" max="0.1" step="0.005" value="0.000">
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+let m1, m2, l1, l2, a1, a2, v1, v2, acc1, acc2;
+let simTime = 0, isRunning = false, trail = [], dragTarget = null;
+
+function applyAndReset() {
+    // For mobile, we cap lengths strictly to fit the smaller top view
+    const safeH = canvas.height * 0.8; 
+    l1 = Math.min(parseFloat(document.getElementById('l1_i').value), safeH/3);
+    l2 = Math.min(parseFloat(document.getElementById('l2_i').value), safeH/3);
+    
+    document.getElementById('l1_i').value = Math.round(l1);
+    document.getElementById('l2_i').value = Math.round(l2);
+
+    m1 = parseFloat(document.getElementById('m1_i').value);
+    m2 = parseFloat(document.getElementById('m2_i').value);
+    a1 = 90 * Math.PI / 180;
+    a2 = 45 * Math.PI / 180;
+    v1 = v2 = acc1 = acc2 = simTime = 0; trail = [];
+}
+
+function toggleSim() {
+    isRunning = !isRunning;
+    document.getElementById('runBtn').innerText = isRunning ? "Pause" : "Resume";
+}
+
+function solve() {
+    const g = parseFloat(document.getElementById('g_s').value) / 15;
+    const damp = 1 - parseFloat(document.getElementById('d_s').value);
+    document.getElementById('g_l').innerText = (g*15).toFixed(1);
+    document.getElementById('d_l').innerText = (1-damp).toFixed(3);
+
+    if (isRunning && !dragTarget) {
+        let den = (2*m1 + m2 - m2*Math.cos(2*a1 - 2*a2));
+        acc1 = (-g*(2*m1+m2)*Math.sin(a1) - m2*g*Math.sin(a1-2*a2) - 2*Math.sin(a1-a2)*m2*(v2*v2*l2 + v1*v1*l1*Math.cos(a1-a2))) / (l1*den);
+        acc2 = (2*Math.sin(a1-a2)*(v1*v1*l1*(m1+m2) + g*(m1+m2)*Math.cos(a1) + v2*v2*l2*m2*Math.cos(a1-a2))) / (l2*den);
+        v1 = (v1 + acc1) * damp; v2 = (v2 + acc2) * damp;
+        a1 += v1; a2 += v2;
+        simTime += 1/60;
+    }
+
+    document.getElementById('t_a1').innerText = Math.round(a1 * 180/Math.PI % 360) + "°";
+    document.getElementById('t_a2').innerText = Math.round(a2 * 180/Math.PI % 360) + "°";
+    document.getElementById('t_t').innerText = simTime.toFixed(1) + "s";
+    document.getElementById('t_e').innerText = Math.abs(Math.round(v1*100 + v2*100));
+    document.getElementById('t_v2').innerText = v2.toFixed(2);
+    document.getElementById('t_a2_acc').innerText = acc2.toFixed(3);
+}
+
+function draw() {
+    ctx.fillStyle = '#010204'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    solve();
+    
+    const cx = canvas.width / 2, cy = canvas.height / 4;
+    const x1 = l1 * Math.sin(a1) + cx, y1 = l1 * Math.cos(a1) + cy;
+    const x2 = x1 + l2 * Math.sin(a2), y2 = y1 + l2 * Math.cos(a2);
+
+    if (isRunning) { trail.push({x: x2, y: y2}); if(trail.length > 80) trail.shift(); }
+    ctx.strokeStyle = 'rgba(0, 242, 255, 0.15)'; ctx.beginPath();
+    trail.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)); ctx.stroke();
+
+    ctx.strokeStyle = '#00f2ff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(x1, y1, Math.max(4, Math.sqrt(m1)*1.5), 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x2, y2, Math.max(4, Math.sqrt(m2)*1.5), 0, Math.PI*2); ctx.fill();
+
+    requestAnimationFrame(draw);
+}
+
+// Touch Support
+canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    const cx = canvas.width/2, cy = canvas.height/4;
+    const x1 = l1 * Math.sin(a1) + cx, y1 = l1 * Math.cos(a1) + cy;
+    const x2 = x1 + l2 * Math.sin(a2), y2 = y1 + l2 * Math.cos(a2);
+    const mx = touch.clientX, my = touch.clientY;
+    if (Math.hypot(mx-x1, my-y1) < 40) dragTarget = 1;
+    else if (Math.hypot(mx-x2, my-y2) < 40) dragTarget = 2;
+});
+canvas.addEventListener('touchend', () => dragTarget = null);
+canvas.addEventListener('touchmove', e => {
+    if(!dragTarget) return;
+    const touch = e.touches[0];
+    const mx = touch.clientX, my = touch.clientY, cx = canvas.width/2, cy = canvas.height/4;
+    if(dragTarget === 1) a1 = Math.atan2(mx-cx, my-cy);
+    else { const x1 = l1 * Math.sin(a1) + cx, y1 = l1 * Math.cos(a1) + cy; a2 = Math.atan2(mx-x1, my-y1); }
+});
+
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight * 0.6;
+    applyAndReset();
+}
+
+window.addEventListener('resize', resize);
+resize(); draw();
+</script>
+</body>
+</html>
